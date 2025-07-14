@@ -183,7 +183,7 @@ body {
 .numa-scroll {
   display: grid;
   margin: 0 auto;
-  grid-template-columns: repeat(10, 2.5em);
+  grid-template-columns: repeat(10, 2.2em);
   column-gap: 0em;
   row-gap: 0em;
   background: transparent;
