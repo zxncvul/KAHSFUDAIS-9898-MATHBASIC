@@ -177,6 +177,7 @@ export function renderExercises(sequence, modes) {
     input.type = 'text';
     input.maxLength = correctStr.length;
     input.className = 'answer-input';
+    input.readOnly = true;
     questionRow.appendChild(input);
     input.focus();
     attachValidation(input, spacedExpr, correctStr);
@@ -194,6 +195,7 @@ export function renderExercises(sequence, modes) {
     const input = document.createElement('input');
     input.type = 'text'; input.maxLength = correctStr.length;
     input.className = 'answer-input';
+    input.readOnly = true;
     questionRow.appendChild(input);
     exContainer.appendChild(questionRow);
     input.focus();
