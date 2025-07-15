@@ -11,6 +11,11 @@ const speedMap = {
   '6H': 10000
 };
 
+let sequence = [];
+let originalSequence = [];
+let failedExercises = [];
+let idx = 0;
+
 // Utilidades matemáticas
 function calc(a, op, b) {
   switch (op) {
@@ -94,6 +99,12 @@ export function renderExercises(sequence, modes) {
   term.innerHTML = '';
   createNumericKeypad();
 
+  originalSequence = sequence.slice();        // ✅ CORRECTO
+sequence = sequence.slice();           // Copia que se irá modificando
+failedExercises = [];                       // Limpiamos errores anteriores
+idx = 0;                                    // Reseteamos índice
+
+
   const outer = document.createElement('div');
   Object.assign(outer.style, {
     position:  'relative',
@@ -134,101 +145,160 @@ export function renderExercises(sequence, modes) {
   outer.appendChild(exContainer);
 
   // Mostrar ejercicios secuenciales
-  let idx = 0;
-  function showNext() {
-    if (idx >= sequence.length) {
-      exContainer.innerHTML = '<div>¡Has terminado todos los ejercicios!</div>';
-      return;
-    }
-    let expr = sequence[idx++];
-    if (isMirror) {
-      const parts = expr.split(/([+\-×÷])/), ops = [], vals = [];
-      parts.forEach((p,i) => (i%2?ops:vals).push(p));
-      vals.reverse(); ops.reverse();
-      expr = vals.reduce((acc,v,i) => acc + (ops[i]||'') + (vals[i]||''), vals[0]);
-    }
-    const jsExpr = expr.replace(/×/g,'*').replace(/÷/g,'/');
-    let correctValue;
-    try { correctValue = eval(jsExpr); } catch { correctValue = NaN; }
-    const correctStr = String(correctValue);
+  
 
-    exContainer.innerHTML = '';
-    const questionRow = document.createElement('div');
-    questionRow.className = 'exercise-row';
-    const spacedExpr = expr.replace(/([+\-×÷])/g, ' $1 ');
-    const pregunta   = document.createElement('div');
-    pregunta.className = 'question';
-
-    // Modos especiales
-    
-   if (isFugues) {
-  pregunta.textContent = `${spacedExpr} = `;
-  questionRow.appendChild(pregunta);
-  exContainer.appendChild(questionRow);
-
-  // ✅ Usar el valor persistido en localStorage
-  const selectedSpeed = localStorage.getItem('fuguesSpeed') || '1H';
-  const delay = speedMap[selectedSpeed] || speedMap['1H'];
-  console.log('⏱ Delay Fugues:', selectedSpeed, delay);
-
-  setTimeout(() => {
-    pregunta.textContent = '';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.maxLength = correctStr.length;
-    input.className = 'answer-input';
-    input.readOnly = true;
-    questionRow.appendChild(input);
-    input.focus();
-    attachValidation(input, spacedExpr, correctStr);
-  }, delay);
-
-  return;
+  function restartSession(startingSequence) {
+  idx = 0;
+  sequence = [...startingSequence];
+  failedExercises = [];
+  exContainer.innerHTML = '';
+  answeredList.innerHTML = '';
+  showNext();
 }
 
 
 
-   
-    // Modo normal
+
+  function showNext() {
+  if (idx >= sequence.length) {
+    // Si hay fallos, repetirlos
+    if (failedExercises.length > 0) {
+      sequence = [...failedExercises];   // Repetimos SOLO los fallados
+      failedExercises = [];
+      idx = 0;
+      return showNext();
+    }
+
+    // Si no hay fallos pendientes → Mostrar botón de repetir
+      answeredList.innerHTML = '';
+  exContainer.innerHTML = '';
+
+    const repeatBtn = document.createElement('button');
+    repeatBtn.textContent = 'Repetir';
+    repeatBtn.className = 'numa-btn';
+    repeatBtn.style.marginTop = '1em';
+    repeatBtn.onclick = () => restartSession(originalSequence);
+    exContainer.appendChild(repeatBtn);
+
+    return;
+  }
+
+  let expr = sequence[idx++];
+  if (isMirror) {
+    const parts = expr.split(/([+\-×÷])/), ops = [], vals = [];
+    parts.forEach((p, i) => (i % 2 ? ops : vals).push(p));
+    vals.reverse(); ops.reverse();
+    expr = vals.reduce((acc, v, i) => acc + (ops[i] || '') + (vals[i] || ''), vals[0]);
+  }
+
+  const jsExpr = expr.replace(/×/g, '*').replace(/÷/g, '/');
+  let correctValue;
+  try { correctValue = eval(jsExpr); } catch { correctValue = NaN; }
+  const correctStr = String(correctValue);
+
+  exContainer.innerHTML = '';
+  const questionRow = document.createElement('div');
+  questionRow.className = 'exercise-row';
+  const spacedExpr = expr.replace(/([+\-×÷])/g, ' $1 ');
+  const pregunta = document.createElement('div');
+  pregunta.className = 'question';
+
+  // 🕒 Modo Fugues (con delay personalizado)
+  if (isFugues) {
     pregunta.textContent = `${spacedExpr} = `;
     questionRow.appendChild(pregunta);
-    const input = document.createElement('input');
-    input.type = 'text'; input.maxLength = correctStr.length;
-    input.className = 'answer-input';
-    input.readOnly = true;
-    questionRow.appendChild(input);
     exContainer.appendChild(questionRow);
-    input.focus();
-    attachValidation(input, spacedExpr, correctStr);
-  }
-  showNext();
 
-  function attachValidation(inputEl, spacedExpr, correctStr) {
+    const selectedSpeed = localStorage.getItem('fuguesSpeed') || '1H';
+    const delay = speedMap[selectedSpeed] || speedMap['1H'];
+
+    setTimeout(() => {
+      pregunta.textContent = '';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.maxLength = correctStr.length;
+      input.className = 'answer-input';
+      input.setAttribute('readonly', 'true'); // 🛑 Evita teclado móvil
+      questionRow.appendChild(input);
+      input.focus();
+      attachValidation(input, spacedExpr, correctStr);
+    }, delay);
+    return;
+  }
+
+  // Normal
+  pregunta.textContent = `${spacedExpr} = `;
+  questionRow.appendChild(pregunta);
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = correctStr.length;
+  input.className = 'answer-input';
+  input.setAttribute('readonly', 'true'); // 🛑 Evita teclado móvil
+  questionRow.appendChild(input);
+  exContainer.appendChild(questionRow);
+  input.focus();
+  attachValidation(input, spacedExpr, correctStr);
+}
+
+  originalSequence = sequence.slice();  // Guarda copia original
+idx = 0;
+failedExercises = [];
+showNext();
+
+
+function attachValidation(inputEl, spacedExpr, correctStr) {
+  let firstTry = true;
   let timer = null;
+
+  const maxLength = correctStr.length;
+  inputEl.removeAttribute('readonly'); // ← permitir entrada solo desde keypad web
 
   const validate = () => {
     clearTimeout(timer);
-    if (inputEl.value.length === correctStr.length) {
+    const userValue = inputEl.value.trim();
+
+    // Evitar seguir escribiendo si ya se falló
+    if (userValue.length > maxLength) {
+      inputEl.value = userValue.slice(0, maxLength);
+      return;
+    }
+
+    if (userValue.length === maxLength) {
       timer = setTimeout(() => {
-        const userValue = inputEl.value.trim();
         const isCorrect = userValue === correctStr;
 
         if (!isCorrect) {
           const questionRow = inputEl.closest('.exercise-row');
           if (questionRow) questionRow.style.color = '#ff0000';
 
-          inputEl.value = '';    // ← Limpia
-          inputEl.focus();       // ← Foco para volver a escribir
+          // Agregar al historial como incorrecto (solo 1 vez)
+          if (firstTry) {
+            failedExercises.push(spacedExpr);
 
-          if (window.navigator.vibrate) window.navigator.vibrate(100);
-          return; // 👈 No continúa hasta que acierte
+            const item = document.createElement('div');
+            item.className = 'answered-item incorrect';
+            item.textContent = `${spacedExpr} = ${userValue}`;
+            answeredList.insertBefore(item, answeredList.firstChild);
+            adjustAnsweredListFadeOut();
+          }
+
+          // Limpiar input
+          inputEl.value = '';
+          inputEl.focus();
+          firstTry = false;
+          return;
         }
 
-        const item = document.createElement('div');
-        item.className = 'answered-item correct';
-        item.textContent = `${spacedExpr} = ${userValue}`;
-        answeredList.insertBefore(item, answeredList.firstChild);
-        adjustAnsweredListFadeOut();
+        // ✅ Correcto (solo se guarda si fue a la primera)
+        if (firstTry) {
+          const item = document.createElement('div');
+          item.className = 'answered-item correct';
+          item.textContent = `${spacedExpr} = ${userValue}`;
+          answeredList.insertBefore(item, answeredList.firstChild);
+          adjustAnsweredListFadeOut();
+        }
+
+        // Continuar
         showNext();
       }, 300);
     }
@@ -236,6 +306,8 @@ export function renderExercises(sequence, modes) {
 
   inputEl.addEventListener('input', validate);
 }
+
+
 
 
 
