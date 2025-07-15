@@ -215,10 +215,21 @@ idx = 0;                                    // Reseteamos índice
     setTimeout(() => {
       pregunta.textContent = '';
       const input = document.createElement('input');
-      input.type = 'text';
-      input.maxLength = correctStr.length;
-      input.className = 'answer-input';
-      input.setAttribute('readonly', 'true'); // 🛑 Evita teclado móvil
+input.type = 'text';
+input.maxLength = correctStr.length;
+input.className = 'answer-input';
+
+// 🛑 Evita teclado móvil sin romper eventos
+input.setAttribute('readonly', 'true');
+input.addEventListener('touchstart', e => {
+  e.preventDefault();  // evita abrir el teclado
+  input.removeAttribute('readonly'); // permite escribir desde teclado web
+  input.focus();       // asegura foco
+});
+input.addEventListener('blur', () => {
+  input.setAttribute('readonly', 'true'); // vuelve a bloquear
+});
+
       questionRow.appendChild(input);
       input.focus();
       attachValidation(input, spacedExpr, correctStr);
@@ -227,17 +238,31 @@ idx = 0;                                    // Reseteamos índice
   }
 
   // Normal
-  pregunta.textContent = `${spacedExpr} = `;
-  questionRow.appendChild(pregunta);
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.maxLength = correctStr.length;
-  input.className = 'answer-input';
-  input.setAttribute('readonly', 'true'); // 🛑 Evita teclado móvil
-  questionRow.appendChild(input);
-  exContainer.appendChild(questionRow);
-  input.focus();
-  attachValidation(input, spacedExpr, correctStr);
+ // Modo normal
+pregunta.textContent = `${spacedExpr} = `;
+questionRow.appendChild(pregunta);
+exContainer.appendChild(questionRow);
+
+const input = document.createElement('input');
+input.type = 'text';
+input.maxLength = correctStr.length;
+input.className = 'answer-input';
+
+// 🛑 Evita teclado móvil sin romper interacción
+input.setAttribute('readonly', 'true');
+input.addEventListener('touchstart', e => {
+  e.preventDefault();                  // Evita abrir teclado móvil
+  input.removeAttribute('readonly');  // Permite escritura con teclado web
+  input.focus();                      // Asegura foco
+});
+input.addEventListener('blur', () => {
+  input.setAttribute('readonly', 'true'); // Rebloquea si se pierde el foco
+});
+
+questionRow.appendChild(input);
+input.focus();
+attachValidation(input, spacedExpr, correctStr);
+
 }
 
   originalSequence = sequence.slice();  // Guarda copia original
