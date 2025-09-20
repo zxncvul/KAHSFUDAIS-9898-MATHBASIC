@@ -1,7 +1,5 @@
-// 📁 mathMode/modules/NumaRender.js
-import { createNumericKeypad } from './numaKeypad.js';
+import { createNumericKeypad, removeNumericKeypad } from './numaKeypad.js';
 
-// Map de velocidades para el modo Fugues
 const speedMap = {
   '1H': 200,
   '2H': 500,
@@ -11,338 +9,295 @@ const speedMap = {
   '6H': 10000
 };
 
-let sequence = [];
-let originalSequence = [];
+let templates = [];
+let activeExercises = [];
 let failedExercises = [];
-let idx = 0;
+let index = 0;
+let termRef = null;
+let outputRef = null;
+let answeredListRef = null;
+let fuguesDelay = speedMap['1H'];
+let onExitCallback = () => {};
+let shuffleOnReset = false;
 
-// Utilidades matemáticas
-function calc(a, op, b) {
-  switch (op) {
-    case '+': return a + b;
-    case '-': return a - b;
-    case '×': return a * b;
-    case '÷': return b === 0 ? null : a / b;
-    default:  return null;
-  }
+function cloneTemplate(tpl) {
+  return {
+    kind: tpl.kind,
+    prompt: tpl.prompt,
+    answer: tpl.answer,
+    numericAnswer: tpl.numericAnswer,
+    display: tpl.display ?? tpl.prompt.replace(' =', ''),
+  };
 }
 
 function shuffle(arr) {
-  for (let i = arr.length - 1; i > 0; i--) {
+  const copy = arr.slice();
+  for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+    [copy[i], copy[j]] = [copy[j], copy[i]];
   }
-  return arr;
+  return copy;
 }
 
-export function renderExercises(sequence, modes) {
-  // Obtener panel y terminal
-  const mathPanel = document.getElementById('math-panel');
-  const term      = document.getElementById('numa-terminal');
-  if (!term) return;
+function formatHistoryItem(exercise, userValue, correct) {
+  const item = document.createElement('div');
+  item.className = `answered-item ${correct ? 'correct' : 'incorrect'}`;
+  item.textContent = `${exercise.prompt} ${userValue}`;
+  return item;
+}
 
-  // Botón “Salir” para restaurar centrado y recargar
-  const exitBtn = document.createElement('button');
-  exitBtn.textContent = 'X';
-  exitBtn.className = 'exit-btn';
-  Object.assign(exitBtn.style, {
-    position:   'absolute',
-    top:        '8px',
-    right:      '8px',
-    width:      '24px',
-    height:     '24px',
-    lineHeight: '24px',
-    textAlign:  'center',
-    background: 'transparent',
-    border:     'none',
-    color:      '#ff0000',
-    fontFamily: 'monospace',
-    fontSize:   '0.8rem',
-    borderRadius: '3px',
-    cursor:     'pointer',
-    zIndex:     '1001'
-  });
-  exitBtn.onclick = () => {
-    if (mathPanel) mathPanel.style.justifyContent = 'center';
-    localStorage.setItem('reopenMath', '1');
-    location.reload();
-  };
-  mathPanel.appendChild(exitBtn);
-
-  // Modos activos
-  const isMirror = modes.includes('Mirror');
-  const isFugues = modes.includes('Fugues');
-  const isRandom = modes.includes('Random');
-  const isSurges = modes.includes('Surges');
-
-
-  // Preprocesar secuencia
-  if (isRandom) shuffle(sequence);
-  if (isSurges) {
-    const computeComplexity = expr => {
-      const parts = expr.split(/([+\-×÷])/);
-      let value = parseFloat(parts[0]), complexity = Math.abs(value);
-      for (let i = 1; i < parts.length; i += 2) {
-        const op  = parts[i];
-        const nxt = parseFloat(parts[i+1]);
-        value = calc(value, op, nxt);
-        if (value === null) break;
-        complexity += Math.abs(value);
-      }
-      return complexity;
-    };
-    sequence.sort((a, b) => computeComplexity(a) - computeComplexity(b));
-  }
-
-  // Ajustes UI
-  mathPanel.style.justifyContent = 'flex-start';
-  term.innerHTML = '';
-  createNumericKeypad();
-
-  originalSequence = sequence.slice();        // ✅ CORRECTO
-sequence = sequence.slice();           // Copia que se irá modificando
-failedExercises = [];                       // Limpiamos errores anteriores
-idx = 0;                                    // Reseteamos índice
-
-
-  const outer = document.createElement('div');
-  Object.assign(outer.style, {
-    position:  'relative',
-    flex:      '1',
-    width:     '100%',
-    alignSelf: 'stretch'
-  });
-  term.appendChild(outer);
-
-  // Fijar historial y contenedor al tope
-  term.style.overflowY = 'hidden';
-
-  const answeredList = document.createElement('div');
-  answeredList.className = 'answered-list';
-  Object.assign(answeredList.style, {
-    position:   'fixed',
-    top:        '10.5rem',
-    left:       '4rem',
-    right:      '1rem',
-    zIndex:     '999',
-    background: '#000'
-  });
-  outer.appendChild(answeredList);
-
-  const exContainer = document.createElement('div');
-  exContainer.className = 'numa-output';
-  Object.assign(exContainer.style, {
-    position:   'fixed',
-    top:        '7rem',
-    left:       '1rem',
-    right:      '1rem',
-    zIndex:     '1000',
-    background: '#000',
-    color:      '#28a746',
-    fontFamily: 'monospace',
-    padding:    '1em'
-  });
-  outer.appendChild(exContainer);
-
-  // Mostrar ejercicios secuenciales
-  
-
-  function restartSession(startingSequence) {
-  idx = 0;
-  sequence = [...startingSequence];
+function cleanupSession() {
+  removeNumericKeypad();
+  templates = [];
+  activeExercises = [];
   failedExercises = [];
-  exContainer.innerHTML = '';
-  answeredList.innerHTML = '';
-  showNext();
+  index = 0;
+  termRef = null;
+  outputRef = null;
+  answeredListRef = null;
+  fuguesDelay = speedMap['1H'];
+  onExitCallback = () => {};
+  shuffleOnReset = false;
 }
 
+function adjustHistoryFade() {
+  if (!answeredListRef) return;
+  const items = Array.from(answeredListRef.children);
+  while (items.length > 12) {
+    const node = items.pop();
+    if (node) node.remove();
+  }
+  const total = answeredListRef.children.length;
+  const min = 0.25;
+  const max = 1;
+  Array.from(answeredListRef.children).forEach((node, idx) => {
+    const ratio = total <= 1 ? 0 : idx / (total - 1);
+    node.style.opacity = String(max - (max - min) * ratio);
+  });
+}
 
-
-
-  function showNext() {
-  if (idx >= sequence.length) {
-    // Si hay fallos, repetirlos
-    if (failedExercises.length > 0) {
-      sequence = [...failedExercises];   // Repetimos SOLO los fallados
-      failedExercises = [];
-      idx = 0;
-      return showNext();
+function checkAnswer(exercise, value) {
+  const trimmed = value.trim();
+  if (exercise.kind === 'numeric') {
+    const normalized = trimmed.replace(',', '.');
+    const userNumber = Number(normalized);
+    if (!Number.isFinite(userNumber) || typeof exercise.numericAnswer !== 'number') {
+      return false;
     }
-
-    // Si no hay fallos pendientes → Mostrar botón de repetir
-      answeredList.innerHTML = '';
-  exContainer.innerHTML = '';
-
-    const repeatBtn = document.createElement('button');
-    repeatBtn.textContent = 'Repetir';
-    repeatBtn.className = 'numa-btn';
-    repeatBtn.style.marginTop = '1em';
-    repeatBtn.onclick = () => restartSession(originalSequence);
-    exContainer.appendChild(repeatBtn);
-
-    return;
+    const diff = Math.abs(userNumber - exercise.numericAnswer);
+    return diff < 0.01;
   }
-
-  let expr = sequence[idx++];
-  if (isMirror) {
-    const parts = expr.split(/([+\-×÷])/), ops = [], vals = [];
-    parts.forEach((p, i) => (i % 2 ? ops : vals).push(p));
-    vals.reverse(); ops.reverse();
-    expr = vals.reduce((acc, v, i) => acc + (ops[i] || '') + (vals[i] || ''), vals[0]);
-  }
-
-  const jsExpr = expr.replace(/×/g, '*').replace(/÷/g, '/');
-  let correctValue;
-  try { correctValue = eval(jsExpr); } catch { correctValue = NaN; }
-  const correctStr = String(correctValue);
-
-  exContainer.innerHTML = '';
-  const questionRow = document.createElement('div');
-  questionRow.className = 'exercise-row';
-  const spacedExpr = expr.replace(/([+\-×÷])/g, ' $1 ');
-  const pregunta = document.createElement('div');
-  pregunta.className = 'question';
-
-  // 🕒 Modo Fugues (con delay personalizado)
-  if (isFugues) {
-    pregunta.textContent = `${spacedExpr} = `;
-    questionRow.appendChild(pregunta);
-    exContainer.appendChild(questionRow);
-
-    const selectedSpeed = localStorage.getItem('fuguesSpeed') || '1H';
-    const delay = speedMap[selectedSpeed] || speedMap['1H'];
-
-    setTimeout(() => {
-      pregunta.textContent = '';
-      const input = document.createElement('input');
-input.type = 'text';
-input.maxLength = correctStr.length;
-input.className = 'answer-input';
-
-// 🛑 Evita teclado móvil sin romper eventos
-input.setAttribute('readonly', 'true');
-input.addEventListener('touchstart', e => {
-  e.preventDefault();  // evita abrir el teclado
-  input.removeAttribute('readonly'); // permite escribir desde teclado web
-  input.focus();       // asegura foco
-});
-input.addEventListener('blur', () => {
-  input.setAttribute('readonly', 'true'); // vuelve a bloquear
-});
-
-      questionRow.appendChild(input);
-      input.focus();
-      attachValidation(input, spacedExpr, correctStr);
-    }, delay);
-    return;
-  }
-
-  // Normal
- // Modo normal
-pregunta.textContent = `${spacedExpr} = `;
-questionRow.appendChild(pregunta);
-exContainer.appendChild(questionRow);
-
-const input = document.createElement('input');
-input.type = 'text';
-input.maxLength = correctStr.length;
-input.className = 'answer-input';
-
-// 🛑 Evita teclado móvil sin romper interacción
-input.setAttribute('readonly', 'true');
-input.addEventListener('touchstart', e => {
-  e.preventDefault();                  // Evita abrir teclado móvil
-  input.removeAttribute('readonly');  // Permite escritura con teclado web
-  input.focus();                      // Asegura foco
-});
-input.addEventListener('blur', () => {
-  input.setAttribute('readonly', 'true'); // Rebloquea si se pierde el foco
-});
-
-questionRow.appendChild(input);
-input.focus();
-attachValidation(input, spacedExpr, correctStr);
-
+  return trimmed.toLowerCase() === exercise.answer.toLowerCase();
 }
 
-  originalSequence = sequence.slice();  // Guarda copia original
-idx = 0;
-failedExercises = [];
-showNext();
+function normalizeAnswer(exercise) {
+  if (exercise.kind === 'numeric' && typeof exercise.numericAnswer === 'number') {
+    const value = Math.round(exercise.numericAnswer * 100) / 100;
+    if (Number.isInteger(value)) return String(value);
+    return value.toFixed(2).replace(/\.0+$/,'').replace(/0+$/,'');
+  }
+  return exercise.answer;
+}
 
+function showCompletion() {
+  if (!outputRef) return;
+  outputRef.innerHTML = '';
 
-function attachValidation(inputEl, spacedExpr, correctStr) {
-  let firstTry = true;
-  let timer = null;
+  const doneMsg = document.createElement('p');
+  doneMsg.textContent = 'Sesión completada. ¡Bien hecho!';
+  outputRef.appendChild(doneMsg);
 
-  const maxLength = correctStr.length;
-  inputEl.removeAttribute('readonly'); // ← permitir entrada solo desde keypad web
+  const resetBtn = document.createElement('button');
+  resetBtn.type = 'button';
+  resetBtn.className = 'numa-btn';
+  resetBtn.textContent = 'Reset';
+  resetBtn.addEventListener('click', () => {
+    answeredListRef.innerHTML = '';
+    startSession(true);
+  });
+  outputRef.appendChild(resetBtn);
 
-  const validate = () => {
-    clearTimeout(timer);
-    const userValue = inputEl.value.trim();
+  const exitBtn = document.createElement('button');
+  exitBtn.type = 'button';
+  exitBtn.className = 'numa-btn';
+  exitBtn.style.marginLeft = '0.5rem';
+  exitBtn.textContent = 'Salir';
+  exitBtn.addEventListener('click', () => {
+    const exit = onExitCallback;
+    cleanupSession();
+    exit();
+  });
+  outputRef.appendChild(exitBtn);
+}
 
-    // Evitar seguir escribiendo si ya se falló
-    if (userValue.length > maxLength) {
-      inputEl.value = userValue.slice(0, maxLength);
+function handleFailed(exercise, inputEl, firstAttempt) {
+  const historyItem = formatHistoryItem(exercise, inputEl.value.trim(), false);
+  answeredListRef.prepend(historyItem);
+  adjustHistoryFade();
+  if (firstAttempt) {
+    failedExercises.push(cloneTemplate(exercise));
+  }
+  inputEl.value = '';
+  inputEl.focus();
+}
+
+function moveNext() {
+  if (!outputRef) return;
+  setTimeout(showNextExercise, 150);
+}
+
+function prepareInput(exercise) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'answer-input';
+  input.autocomplete = 'off';
+  input.spellcheck = false;
+  input.setAttribute('inputmode', 'decimal');
+  input.addEventListener('focus', () => {
+    input.removeAttribute('readonly');
+  });
+  input.setAttribute('readonly', 'true');
+  input.addEventListener('touchstart', evt => {
+    evt.preventDefault();
+    input.removeAttribute('readonly');
+    input.focus();
+  }, { passive: false });
+  input.addEventListener('blur', () => {
+    input.setAttribute('readonly', 'true');
+  });
+  return input;
+}
+
+function showNextExercise() {
+  if (!outputRef) return;
+
+  if (index >= activeExercises.length) {
+    if (failedExercises.length > 0) {
+      activeExercises = failedExercises.slice();
+      failedExercises = [];
+      index = 0;
+    } else {
+      showCompletion();
       return;
     }
+  }
 
-    if (userValue.length === maxLength) {
-      timer = setTimeout(() => {
-        const isCorrect = userValue === correctStr;
+  const exercise = activeExercises[index++];
+  outputRef.innerHTML = '';
 
-        if (!isCorrect) {
-          const questionRow = inputEl.closest('.exercise-row');
-          if (questionRow) questionRow.style.color = '#ff0000';
+  const questionRow = document.createElement('div');
+  questionRow.className = 'exercise-row';
 
-          // Agregar al historial como incorrecto (solo 1 vez)
-          if (firstTry) {
-            failedExercises.push(spacedExpr);
+  const promptEl = document.createElement('div');
+  promptEl.className = 'question';
+  promptEl.textContent = exercise.prompt;
+  questionRow.appendChild(promptEl);
 
-            const item = document.createElement('div');
-            item.className = 'answered-item incorrect';
-            item.textContent = `${spacedExpr} = ${userValue}`;
-            answeredList.insertBefore(item, answeredList.firstChild);
-            adjustAnsweredListFadeOut();
-          }
+  outputRef.appendChild(questionRow);
 
-          // Limpiar input
-          inputEl.value = '';
-          inputEl.focus();
-          firstTry = false;
-          return;
-        }
+  const renderInput = () => {
+    const input = prepareInput(exercise);
+    questionRow.appendChild(input);
+    input.focus();
 
-        // ✅ Correcto (solo se guarda si fue a la primera)
-        if (firstTry) {
-          const item = document.createElement('div');
-          item.className = 'answered-item correct';
-          item.textContent = `${spacedExpr} = ${userValue}`;
-          answeredList.insertBefore(item, answeredList.firstChild);
-          adjustAnsweredListFadeOut();
-        }
+    let firstAttempt = true;
+    let validationTimer = null;
 
-        // Continuar
-        showNext();
-      }, 300);
-    }
+    const submit = () => {
+      clearTimeout(validationTimer);
+      const value = input.value.trim();
+      if (!value) return;
+      const isCorrect = checkAnswer(exercise, value);
+      if (isCorrect) {
+        const item = formatHistoryItem(exercise, normalizeAnswer(exercise), true);
+        answeredListRef.prepend(item);
+        adjustHistoryFade();
+        moveNext();
+      } else {
+        handleFailed(exercise, input, firstAttempt);
+        firstAttempt = false;
+      }
+    };
+
+    input.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        submit();
+      }
+    });
+
+    input.addEventListener('input', () => {
+      clearTimeout(validationTimer);
+      validationTimer = setTimeout(submit, 200);
+    });
   };
 
-  inputEl.addEventListener('input', validate);
+  if (fuguesDelay > 0 && exercise.kind === 'numeric') {
+    setTimeout(renderInput, fuguesDelay);
+  } else {
+    renderInput();
+  }
 }
 
-
-
-
-
-  function adjustAnsweredListFadeOut() {
-    const lis = Array.from(answeredList.children);
-    while (lis.length > 10) lis.pop() && answeredList.removeChild(answeredList.lastChild);
-    const N = lis.length, minOp = 0.2, maxOp = 1.0;
-    lis.forEach((node, i) => {
-      const t = N === 1 ? 0 : (i / (N - 1));
-      node.style.opacity = (maxOp - (maxOp - minOp) * t).toString();
-    });
+function startSession(forceShuffle = false) {
+  failedExercises = [];
+  index = 0;
+  activeExercises = templates.map(cloneTemplate);
+  if (shuffleOnReset || forceShuffle) {
+    activeExercises = shuffle(activeExercises);
   }
+  if (answeredListRef) {
+    answeredListRef.innerHTML = '';
+  }
+  showNextExercise();
+}
+
+export function renderExercises(exerciseTemplates, options = {}) {
+  const term = document.getElementById('numa-terminal');
+  if (!term) return;
+
+  templates = exerciseTemplates.map(cloneTemplate);
+  shuffleOnReset = Boolean(options.shuffle);
+  fuguesDelay = speedMap[options.fuguesSpeed] || speedMap['1H'];
+  onExitCallback = typeof options.onExit === 'function' ? options.onExit : () => {};
+
+  term.innerHTML = '';
+  termRef = term;
+
+  const keypad = createNumericKeypad();
+  if (keypad) {
+    keypad.style.position = 'fixed';
+    keypad.style.bottom = '1rem';
+    keypad.style.right = '1rem';
+  }
+
+  const container = document.createElement('div');
+  container.style.position = 'relative';
+  term.appendChild(container);
+
+  const exitBtn = document.createElement('button');
+  exitBtn.type = 'button';
+  exitBtn.textContent = 'Salir';
+  exitBtn.className = 'numa-btn';
+  exitBtn.style.position = 'absolute';
+  exitBtn.style.top = '0.5rem';
+  exitBtn.style.right = '0.5rem';
+  exitBtn.addEventListener('click', () => {
+    const exit = onExitCallback;
+    cleanupSession();
+    exit();
+  });
+  container.appendChild(exitBtn);
+
+  answeredListRef = document.createElement('div');
+  answeredListRef.className = 'answered-list';
+  answeredListRef.style.marginTop = '3.5rem';
+  container.appendChild(answeredListRef);
+
+  outputRef = document.createElement('div');
+  outputRef.className = 'numa-output';
+  outputRef.style.marginTop = '1rem';
+  container.appendChild(outputRef);
+
+  startSession(options.shuffle);
 }
